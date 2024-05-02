@@ -1,2 +1,12 @@
 datasets
 mwparserfromhell
+transformers
+torch
+torchvision
+sentence-transformers
+whoosh
+accelerate
+transformers[torch]
+evaluate
+tensorboardX
+numpy

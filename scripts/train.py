@@ -1,35 +1,71 @@
 # Description: This script is used to train the model using the Hugging Face Trainer API.
-#              The model is trained on the SQuAD dataset.
+#              The model is trained on the Wikipedia dataset.
 #              The model is saved to the 'models' directory.
 #              The model is evaluated using the evaluation script.
 #              The evaluation results are saved to the 'results' directory.
 
 # Importing required libraries
-# import os
-# import torch
-# from transformers import AutoTokenizer, AutoModelForQuestionAnswering, TrainingArguments, Trainer
-# from datasets import load_dataset
-# from evaluation import evaluate
+import os
+import torch
+from transformers import BertTokenizer, BertForSequenceClassification, TrainingArguments, Trainer
+from datasets import load_dataset
+from torch.utils.data import Dataset
+import evaluate
+import numpy as np
 
-# # Load the SQuAD dataset
-# dataset = load_dataset('squad', split='train')
+#  DatasetDict({
+#      train: Dataset({
+#          features: ['id', 'url', 'title', 'text'],
+#          num_rows: 2402095
+#      })
+#  })
+
+# id (str): ID of the article.
+# url (str): URL of the article.
+# title (str): Title of the article.
+# text (str): Text content of the article.
+
+
+# # Load the French Wikipedia dataset
+wikipedia_dataset = load_dataset('wikipedia', '20220301.fr', split='train', trust_remote_code=True)
 
 
 # # Load the pre-trained model and tokenizer
-# model_name = 'bert-base-uncased'
-# tokenizer = AutoTokenizer.from_pretrained(model_name)
-# model = AutoModelForQuestionAnswering.from_pretrained(model_name)
+model_name = 'bert-base-uncased'
+tokenizer = BertTokenizer.from_pretrained(model_name)
+model = BertForSequenceClassification.from_pretrained(model_name, num_labels=2)
+
+
+# # Define the tokenizer function
+def tokenize_function(doc):
+	return tokenizer(doc['title'], doc['text'], truncation=True, padding=True, return_tensors='pt')
 
 
 # # Tokenize the dataset
-# def tokenize_function(examples):
-#     return tokenizer(examples['question'], examples['context'], truncation=True)
+# tokenized_dataset = wikipedia_dataset.take(3).map(lambda doc: tokenizer(doc['title'], doc['text'], truncation=True, padding=True), batched=True)
+tokenized_dataset = wikipedia_dataset.take(10).map(tokenize_function, batched=True)
+
+# small_train_dataset = tokenized_datasets.shuffle(seed=42).select(range(1000))
+# small_eval_dataset = tokenized_datasets.shuffle(seed=42).select(range(1000))
+
+# print(tokenized_dataset)
+
+# for sample in wikipedia_dataset:
+	# print(sample['title'])
+
+# for doc in tokenized_dataset:
+# 	print(doc)
 
 
-# tokenized_dataset = dataset.map(tokenize_function, batched=True)
+# metric = evaluate.load("accuracy")
+
+# def compute_metrics(eval_pred):
+#     logits, labels = eval_pred
+#     predictions = np.argmax(logits, axis=-1)
+#     return metric.compute(predictions=predictions, references=labels)
 
 
-# # Define the training arguments
+# # Define the training arguments | hyperparameters
 # training_args = TrainingArguments(
 #     output_dir='./models',
 #     num_train_epochs=1,
@@ -50,18 +86,43 @@
 #     run_name='squad'
 # )
 
+training_args = TrainingArguments(
+	output_dir='./models',
+	num_train_epochs=3,
+	per_device_train_batch_size=8,
+	evaluation_strategy='epoch'
+)
+
 
 # # Define the Trainer
-# trainer = Trainer(
-#     model=model,
-#     args=training_args,
-#     train_dataset=tokenized_dataset,
-#     eval_dataset=tokenized_dataset
-# )
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_dataset
+)
+
+# Get the PyTorch DataLoader from the tokenized dataset
+train_dataloader = trainer.get_train_dataloader()
+
+# Custom training loop
+for step, batch in enumerate(train_dataloader):
+    # Forward pass
+    outputs = model(**batch)
+    start_logits, end_logits = outputs.start_logits, outputs.end_logits
+    
+    # Compute loss
+    loss = compute_loss(start_logits, end_logits, batch['start_positions'], batch['end_positions'])
+    
+    # Backward pass
+    loss.backward()
+    
+    # Update parameters
+    optimizer.step()
+    optimizer.zero_grad()
 
 
 # # Train the model
-# trainer.train()
+trainer.train()
 
 
 # # Evaluate the model
@@ -157,9 +218,3 @@
 # conn.close()
 
 
-
-# from datasets import load_dataset
-
-# print(load_dataset('squad', split='train')[0])
-# print(load_dataset('wikipedia', '20220301.fr', split='train', trust_remote_code=True)[0])
-# print(load_dataset('wikipedia', language='fr', date='20220301', split='train', trust_remote_code=True)[0])

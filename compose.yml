@@ -13,22 +13,24 @@ services:
       - /bin/sh
       - -c
       - |
+        apt-get update
+        apt-get install -y
+        apt-get install gcc python3-dev -y
         pip install -r requirements.txt
         python train.py
-        ls
 
   # add-data:
   #   image: python:3.12-slim
   #   volumes:
-  #     - .:/project
-  #   working_dir: /project
+  #     - ./scripts:/scripts
+  #   working_dir: /scripts
   #   tty: true
   #   command:
   #     - /bin/sh
   #     - -c
   #     - |
   #       pip install -r requirements.txt
-  #       python add_data.py
+  #       python add.py
 
   # database:
   #   image: postgres:13.4
