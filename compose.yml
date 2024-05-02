@@ -1,0 +1,60 @@
+# Define services
+# script to train and run the model
+# script to add new data to the model
+# interface to interact with the model
+services:
+  model:
+    image: python:3.12-slim
+    volumes:
+      - .:/project
+    working_dir: /project
+    tty: true
+    command:
+      - /bin/sh
+      - -c
+      - |
+        pip install -r requirements.txt
+        python main.py
+
+  # add-data:
+  #   image: python:3.12-slim
+  #   volumes:
+  #     - .:/project
+  #   working_dir: /project
+  #   tty: true
+  #   command:
+  #     - /bin/sh
+  #     - -c
+  #     - |
+  #       pip install -r requirements.txt
+  #       python add_data.py
+
+  # database:
+  #   image: postgres:13.4
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: password
+  #     POSTGRES_DB: data
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - ./data:/var/lib/postgresql/data
+
+  # adminer:
+  #   image: adminer
+  #   ports:
+  #     - "8080:8080"
+
+  # redis:
+  #   image: redis:6.2.5
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - ./data:/data
+
+  # web:
+  #   image: node:16.11.1
+  #   volumes:
+  #     - .:/app
+  #   working_dir: /app
+  #   command: npm run dev
