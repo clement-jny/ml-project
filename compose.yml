@@ -6,15 +6,16 @@ services:
   model:
     image: python:3.12-slim
     volumes:
-      - .:/project
-    working_dir: /project
+      - ./scripts:/scripts
+    working_dir: /scripts
     tty: true
     command:
       - /bin/sh
       - -c
       - |
         pip install -r requirements.txt
-        python main.py
+        python train.py
+        ls
 
   # add-data:
   #   image: python:3.12-slim
@@ -52,9 +53,43 @@ services:
   #   volumes:
   #     - ./data:/data
 
+  # Related to the web folder
   # web:
   #   image: node:16.11.1
   #   volumes:
   #     - .:/app
   #   working_dir: /app
   #   command: npm run dev
+
+  # front:
+  #   container_name: web-front
+  #   image: node:16.11.1
+  #   volumes:
+  #     - ./front:/app
+  #   working_dir: /app
+  #   command: npm run dev
+
+  # back:
+  #   container_name: web-back
+  #   image: node:16.11.1
+  #   volumes:
+  #     - ./back:/app
+  #   working_dir: /app
+  #   command: npm run dev
+
+  # nginx:
+  #   image: nginx:1.21.3
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - ./web:/usr/share/nginx/html
+  #     - ./nginx.conf:/etc/nginx/nginx.conf
+
+  # php:
+  #   image: php:8.0.12-fpm
+  #   volumes:
+  #     - ./web:/var/www/html
+  #   ports:
+  #     - "9000:9000"
+  #   working_dir: /var/www/html
+  #   command: php -S 0.0.0.:9000
