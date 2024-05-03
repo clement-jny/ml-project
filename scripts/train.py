@@ -5,9 +5,10 @@
 #              The evaluation results are saved to the 'results' directory.
 
 # Importing required libraries
-import os
+# import os
 import torch
-from transformers import BertTokenizer, BertForSequenceClassification, TrainingArguments, Trainer
+from transformers import BertTokenizer, BertModel, TrainingArguments, Trainer, DataCollatorWithPadding
+from sentence_transformers import util
 from datasets import load_dataset
 from torch.utils.data import Dataset
 import evaluate
@@ -33,28 +34,56 @@ wikipedia_dataset = load_dataset('wikipedia', '20220301.fr', split='train', trus
 # # Load the pre-trained model and tokenizer
 model_name = 'bert-base-uncased'
 tokenizer = BertTokenizer.from_pretrained(model_name)
-model = BertForSequenceClassification.from_pretrained(model_name, num_labels=2)
+model = BertModel.from_pretrained(model_name)
 
 
 # # Define the tokenizer function
-def tokenize_function(doc):
-	return tokenizer(doc['title'], doc['text'], truncation=True, padding=True, return_tensors='pt')
+# def tokenize_function(doc):
+	# return tokenizer(doc['title'], doc['text'], truncation=True, padding=True, return_tensors='pt')
 
 
 # # Tokenize the dataset
 # tokenized_dataset = wikipedia_dataset.take(3).map(lambda doc: tokenizer(doc['title'], doc['text'], truncation=True, padding=True), batched=True)
-tokenized_dataset = wikipedia_dataset.take(10).map(tokenize_function, batched=True)
+# tokenized_dataset = wikipedia_dataset.map(tokenize_function, batched=True)
+
+# data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
 # small_train_dataset = tokenized_datasets.shuffle(seed=42).select(range(1000))
 # small_eval_dataset = tokenized_datasets.shuffle(seed=42).select(range(1000))
 
-# print(tokenized_dataset)
 
-# for sample in wikipedia_dataset:
-	# print(sample['title'])
 
-# for doc in tokenized_dataset:
-# 	print(doc)
+# Parcourir les articles Wikipedia et encoder leurs textes
+encoded_articles = []
+for article in wikipedia_dataset:
+    encoded_input = tokenizer(article['title'], article['text'], return_tensors='pt', padding=True, truncation=True)
+    with torch.no_grad():
+        output = model(**encoded_input)
+        embeddings = output.last_hidden_state.mean(dim=1)  # Utiliser la moyenne des embeddings des tokens
+        encoded_articles.append(embeddings)
+
+
+# Concaténer les embeddings en un seul tenseur
+encoded_articles_tensor = torch.cat(encoded_articles, dim=0)
+
+# Fonction pour encoder une requête et trouver les articles les plus similaires
+def search(query, k=5):
+    encoded_query = tokenizer(query, return_tensors='pt', padding=True, truncation=True)
+    with torch.no_grad():
+        output = model(**encoded_query)
+        query_embedding = output.last_hidden_state.mean(dim=1)  # Utiliser la moyenne des embeddings des tokens
+        cosine_scores = util.pytorch_cos_sim(query_embedding, encoded_articles_tensor)[0]
+        top_results = cosine_scores.argsort(descending=True)[:k]
+        return [(wikipedia_dataset[i]['title'], cosine_scores[i].item()) for i in top_results]
+
+
+# Exemple d'utilisation
+query = "Machine learning"
+results = search(query)
+for title, score in results:
+    print(f"Title: {title}, Score: {score}")
+
+print("Résultats récupérés avec succès !")
 
 
 # metric = evaluate.load("accuracy")
@@ -86,43 +115,43 @@ tokenized_dataset = wikipedia_dataset.take(10).map(tokenize_function, batched=Tr
 #     run_name='squad'
 # )
 
-training_args = TrainingArguments(
-	output_dir='./models',
-	num_train_epochs=3,
-	per_device_train_batch_size=8,
-	evaluation_strategy='epoch'
-)
+# training_args = TrainingArguments(
+# 	output_dir='./models',
+# 	num_train_epochs=3,
+# 	per_device_train_batch_size=8,
+# 	evaluation_strategy='epoch'
+# )
 
 
-# # Define the Trainer
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=tokenized_dataset
-)
+# # # Define the Trainer
+# trainer = Trainer(
+#     model=model,
+#     args=training_args,
+#     train_dataset=tokenized_dataset
+# )
 
 # Get the PyTorch DataLoader from the tokenized dataset
-train_dataloader = trainer.get_train_dataloader()
+# train_dataloader = trainer.get_train_dataloader()
 
 # Custom training loop
-for step, batch in enumerate(train_dataloader):
-    # Forward pass
-    outputs = model(**batch)
-    start_logits, end_logits = outputs.start_logits, outputs.end_logits
+# for step, batch in enumerate(train_dataloader):
+#     # Forward pass
+#     outputs = model(**batch)
+#     start_logits, end_logits = outputs.start_logits, outputs.end_logits
     
-    # Compute loss
-    loss = compute_loss(start_logits, end_logits, batch['start_positions'], batch['end_positions'])
+#     # Compute loss
+#     loss = compute_loss(start_logits, end_logits, batch['start_positions'], batch['end_positions'])
     
-    # Backward pass
-    loss.backward()
+#     # Backward pass
+#     loss.backward()
     
-    # Update parameters
-    optimizer.step()
-    optimizer.zero_grad()
+#     # Update parameters
+#     optimizer.step()
+#     optimizer.zero_grad()
 
 
 # # Train the model
-trainer.train()
+# trainer.train()
 
 
 # # Evaluate the model
