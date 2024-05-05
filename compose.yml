@@ -1,97 +1,80 @@
-# Define services
-# script to train and run the model
-# script to add new data to the model
-# interface to interact with the model
 services:
-  model:
+  # script for running the model -> encode/decode datatset into vectors and store them in the database
+  python:
+    container_name: python
     image: python:3.12-slim
+    env_file:
+      - .env
+    environment:
+      - BASE_URL_ES=$BASE_URL_ES
+      - ES_USER=$ES_USER
+      - ES_PASSWORD=$ES_PASSWORD
     volumes:
       - ./scripts:/scripts
-    working_dir: /scripts
+    working_dir: /scripts # dir inside the container
+    stdin_open: true
     tty: true
     command:
       - /bin/sh
       - -c
       - |
-        apt-get update
-        apt-get install -y
-        apt-get install gcc python3-dev -y
         pip install -r requirements.txt
         python main.py
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - esnet
 
-  # add-data:
-  #   image: python:3.12-slim
-  #   volumes:
-  #     - ./scripts:/scripts
-  #   working_dir: /scripts
-  #   tty: true
-  #   command:
-  #     - /bin/sh
-  #     - -c
-  #     - |
-  #       pip install -r requirements.txt
-  #       python add.py
+  # database to store the vectors of the dataset
+  elasticsearch:
+    container_name: elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.3
+    env_file:
+      - .env
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ELASTIC_PASSWORD=$ES_PASSWORD
+    ports:
+      - $ES_PORT:$ES_PORT
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - esdata:/usr/share/elasticsearch/data
+    networks:
+      - esnet
+    healthcheck:
+      test: curl --fail http://elasticsearch:9200 || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 120
 
-  # database:
-  #   image: postgres:13.4
-  #   environment:
-  #     POSTGRES_USER: postgres
-  #     POSTGRES_PASSWORD: password
-  #     POSTGRES_DB: data
-  #   ports:
-  #     - "5432:5432"
-  #   volumes:
-  #     - ./data:/var/lib/postgresql/data
+  # interface to interact with elastic and the model
+  server:
+    container_name: server
+    image: php:8.3-apache
+    env_file:
+      - .env
+    environment:
+      - BASE_URL_PYTHON=$BASE_URL_PYTHON
+    ports:
+      - $SERVER_LOCAL_PORT:$SERVER_DOCKER_PORT
+    volumes:
+      - ./web:/var/www/html
+    depends_on:
+      # python:
+      # condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - esnet
 
-  # adminer:
-  #   image: adminer
-  #   ports:
-  #     - "8080:8080"
+networks:
+  esnet:
+    driver: bridge
 
-  # redis:
-  #   image: redis:6.2.5
-  #   ports:
-  #     - "6379:6379"
-  #   volumes:
-  #     - ./data:/data
-
-  # Related to the web folder
-  # web:
-  #   image: node:16.11.1
-  #   volumes:
-  #     - .:/app
-  #   working_dir: /app
-  #   command: npm run dev
-
-  # front:
-  #   container_name: web-front
-  #   image: node:16.11.1
-  #   volumes:
-  #     - ./front:/app
-  #   working_dir: /app
-  #   command: npm run dev
-
-  # back:
-  #   container_name: web-back
-  #   image: node:16.11.1
-  #   volumes:
-  #     - ./back:/app
-  #   working_dir: /app
-  #   command: npm run dev
-
-  # nginx:
-  #   image: nginx:1.21.3
-  #   ports:
-  #     - "80:80"
-  #   volumes:
-  #     - ./web:/usr/share/nginx/html
-  #     - ./nginx.conf:/etc/nginx/nginx.conf
-
-  # php:
-  #   image: php:8.0.12-fpm
-  #   volumes:
-  #     - ./web:/var/www/html
-  #   ports:
-  #     - "9000:9000"
-  #   working_dir: /var/www/html
-  #   command: php -S 0.0.0.:9000
+volumes:
+  certs:
+    driver: local
+  esdata:
+    driver: local

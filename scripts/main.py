@@ -1,25 +1,49 @@
-# Description: This script is used to train the model using the Hugging Face Trainer API.
-#              The model is trained on the Wikipedia dataset.
-#              The model is saved to the 'models' directory.
-#              The model is evaluated using the evaluation script.
-#              The evaluation results are saved to the 'results' directory.
+# This file is the backend of the application.
+# It load the dataset and the model
+# Connect to the ElasticSearch database
+# Encode the dataset's title and text into vectors and store them in the ElasticSearch database <- maybe + the entire dataset (column & data)
+# Perform a search on the ElasticSearch database using the encoded user query from the frontend
+# Return the decoded search results to the frontend
 
-# Importing required libraries
-# import os
-import torch
-from transformers import BertTokenizer, BertModel, TrainingArguments, Trainer, DataCollatorWithPadding, DataCollatorWithPadding, AdamW
-from sentence_transformers import util
+# Important files:
+# - app.py: This file expose api endpoints to the frontend -> ex: /search, /add_new_data, /healthcheck
+# - search: This file is used to search for data in the ElasticSearch database
+# - add_new_data: This file is used to add new data to the ElasticSearch database
+# - healthcheck: return 0 if container is up to use or 1 if not
+# - utils: This file contains utility functions used by the other files
+# - config: This file contains the configuration for the ElasticSearch database
+# - requirements.txt: This file contains the required libraries for the project
+
+
+from os import getenv
+from elasticsearch import Elasticsearch
+from sentence_transformers import SentenceTransformer, util
 from datasets import load_dataset
-from torch.utils.data import Dataset, DataLoader
-import evaluate
-import numpy as np
+from transformers import BertTokenizer, BertModel
 
-#  DatasetDict({
-#      train: Dataset({
-#          features: ['id', 'url', 'title', 'text'],
-#          num_rows: 2402095
-#      })
-#  })
+
+# # Load env var & connect to Elasticsearch # #
+BASE_URL_ES = getenv('BASE_URL_ES')
+ES_USER = getenv('ES_USER')
+ES_PASSWORD = getenv('ES_PASSWORD')
+
+
+esClient = Elasticsearch(BASE_URL_ES, basic_auth=(ES_USER, ES_PASSWORD))
+
+print('Connected? -', esClient.ping())
+
+# print(esClient.info())
+
+print("-------------------")
+
+
+# # Load the Wikipedia dataset # #
+# DatasetDict({
+#     train: Dataset({
+#         features: ['id', 'url', 'title', 'text'],
+#         num_rows: 2402095
+#     })
+# })
 
 # id (str): ID of the article.
 # url (str): URL of the article.
@@ -27,112 +51,66 @@ import numpy as np
 # text (str): Text content of the article.
 
 
-# # Load the French Wikipedia dataset
+wikipedia_dataset = load_dataset('wikipedia', '20220301.fr', split='train', trust_remote_code=True)
+small_train_dataset = wikipedia_dataset.select(range(5))
 
-wikipedia_dataset = load_dataset('wikipedia', '20220301.en', split='train', trust_remote_code=True)
-small_train_dataset = wikipedia_dataset.select(range(50))
+print(small_train_dataset)
 
-# # Load the pre-trained model and tokenizer
+
+# # Load the SentenceTransformer model - B.E.R.T. # #
 model_name = 'bert-base-uncased'
-tokenizer = BertTokenizer.from_pretrained(model_name)
-model = BertModel.from_pretrained(model_name)
+model = SentenceTransformer(model_name)
 
+# print("-------------------")
 
-def tokenize_function(doc):
-	return tokenizer(doc['title'], doc['text'], truncation=True, padding=True, return_tensors='pt')
+# # Embed title / text's dataset # #
+# title_embeddings = []
+# text_embeddings = []
+# for article in small_train_dataset:
+# 	encoded_title = model.encode(article['title'])
+# 	title_embeddings.append(encoded_title)
 
-tokenized_dataset = small_train_dataset.map(tokenize_function, batched=True)
+# 	encoded_text = model.encode(article['text'])
+# 	text_embeddings.append(encoded_text)
 
+# print(len(title_embeddings), len(text_embeddings))
+# small_train_dataset = small_train_dataset.add_column(name="title_embeddings", column=title_embeddings)
+# small_train_dataset = small_train_dataset.add_column(name="text_embeddings", column=text_embeddings)
 
-# Définition de l'optimiseur
-# optimizer = AdamW(model.parameters(), lr=1e-5)
+# print(small_train_dataset)
 
+# # Insert into ES
+# esClient.indices.create(index='wiki_article', mappings=)
+# model.to_json('./data.json') # no on SentenceTransformer class
 
-# Entraînement du modèle
-# model.train()
-# for epoch in range(5):
-#     for batch in train_loader:
-#         optimizer.zero_grad()
-#         inputs = batch['input_ids']
-#         outputs = model(**inputs)
-#         # Calcul de la perte et rétropropagation
-#         loss = outputs.loss
-#         loss.backward()
-#         optimizer.step()
+# TODO
+# Create util class to convert Dataset <-> json
+# Create esClient class w/ connection, index creation & CRUD
 
-# # Sauvegarde du modèle
-# model.save_pretrained("bert_for_search")
-
-
-# training_args = TrainingArguments(
-# 	output_dir='./models',
-#     per_device_train_batch_size=8,
-#     num_train_epochs=3,
-#     logging_dir='./logs',
-# )
-
-
-# Définir la fonction d'évaluation
-# def compute_metrics(pred):
-#     labels = pred.label_ids
-#     preds = pred.predictions.argmax(-1)
-#     accuracy = (preds == labels).mean()
-#     return {"accuracy": accuracy}
-
-
-# Créer l'objet Trainer pour l'entraînement
-# trainer = Trainer(
-#     model=model,
-#     args=training_args,
-#     train_dataset=train_dataset,
-#     compute_metrics=compute_metrics,
-# )
-
-# Lancer l'entraînement
-# trainer.train()
-
-# def recherche_full_text(query):
-#     results = []
-#     for idx, article in enumerate(test_dataset['text']):
-#         if query.lower() in article.lower() or query.lower() in test_dataset['title'][idx].lower():
-#             results.append({
-# 				'title': test_dataset['title'][idx],
-# 				'url': test_dataset['url'][idx]
-# 			})
-#     return results
-
-# query = "Algèbre"
-
-# print("\nRésultats de recherche full texte:")
-
-# for results in recherche_full_text(query):
-# 	print('Titre: ', results['title'])
-# 	print('URL: ', results['url'])
-# 	print()
+# # Try with a dump query
 
 
 
-# tokenized_dataset = wikipedia_dataset.take(20).map(tokenize_function, batched=True)
+# # -> Get 5/10 sim (knn) article
 
 
-# Fonction pour effectuer la recherche sur un sous-ensemble de données
-# def search_on_shard(query, shard):
-#     encoded_articles = []
-#     for article in shard:
-#         encoded_input = tokenizer(article['title'], article['text'], return_tensors='pt', padding=True, truncation=True)
-#         with torch.no_grad():
-#             output = model(**encoded_input)
-#             embeddings = output.last_hidden_state.mean(dim=1)
-#             encoded_articles.append(embeddings)
-#     encoded_articles_tensor = torch.cat(encoded_articles, dim=0)
-    
-#     # Rechercher les articles les plus similaires pour la requête donnée
-#     encoded_query = tokenizer(query, return_tensors='pt', padding=True, truncation=True)
-#     with torch.no_grad():
-#         output = model(**encoded_query)
-#         query_embedding = output.last_hidden_state.mean(dim=1)
-#         cosine_scores = util.pytorch_cos_sim(query_embedding, encoded_articles_tensor)[0]
-#         return cosine_scores
+
+# # Get real query from web interface / console interface
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -196,130 +174,3 @@ tokenized_dataset = small_train_dataset.map(tokenize_function, batched=True)
 # print("Résultats récupérés avec succès !")
 
 
-# metric = evaluate.load("accuracy")
-
-# def compute_metrics(eval_pred):
-#     logits, labels = eval_pred
-#     predictions = np.argmax(logits, axis=-1)
-#     return metric.compute(predictions=predictions, references=labels)
-
-
-# # Define the training arguments | hyperparameters
-# training_args = TrainingArguments(
-#     output_dir='./models',
-#     num_train_epochs=1,
-#     per_device_train_batch_size=8,
-#     per_device_eval_batch_size=8,
-#     warmup_steps=500,
-#     weight_decay=0.01,
-#     logging_dir='./logs',
-#     logging_steps=10,
-#     evaluation_strategy='steps',
-#     eval_steps=100,
-#     save_steps=500,
-#     save_total_limit=2,
-#     load_best_model_at_end=True,
-#     metric_for_best_model='f1',
-#     greater_is_better=True,
-#     report_to='tensorboard',
-#     run_name='squad'
-# )
-
-# training_args = TrainingArguments(
-# 	output_dir='./models',
-# 	num_train_epochs=3,
-# 	per_device_train_batch_size=8,
-# 	evaluation_strategy='epoch'
-# )
-
-
-# # # Define the Trainer
-# trainer = Trainer(
-#     model=model,
-#     args=training_args,
-#     train_dataset=tokenized_dataset
-# )
-
-# Get the PyTorch DataLoader from the tokenized dataset
-# train_dataloader = trainer.get_train_dataloader()
-
-# Custom training loop
-# for step, batch in enumerate(train_dataloader):
-#     # Forward pass
-#     outputs = model(**batch)
-#     start_logits, end_logits = outputs.start_logits, outputs.end_logits
-    
-#     # Compute loss
-#     loss = compute_loss(start_logits, end_logits, batch['start_positions'], batch['end_positions'])
-    
-#     # Backward pass
-#     loss.backward()
-    
-#     # Update parameters
-#     optimizer.step()
-#     optimizer.zero_grad()
-
-
-# # Train the model
-# trainer.train()
-
-
-# # Evaluate the model
-# results = trainer.evaluate()
-# print(results)
-
-
-# # Save the model
-# model.save_pretrained('./models')
-
-
-# # Evaluate the model using the evaluation script
-# evaluate('./models', './results')
-
-
-# # Print the evaluation results
-# with open('./results/eval_results.txt', 'r') as file:
-#     print(file.read())
-
-
-# # Delete the logs directory
-# os.system('rm -r ./logs')
-
-
-# # Delete the models directory
-# os.system('rm -r ./models')
-
-
-# # Delete the results directory
-# os.system('rm -r ./results')
-
-
-# # Delete the wandb directory
-# os.system('rm -r ./wandb')
-
-
-# # Delete the cache directory
-# os.system('rm -r ./cache')
-
-
-# # Train the model on the French Wikipedia dataset
-# dataset = load_dataset('wikipedia', '20220301.fr', split='train', trust_remote_code=True)
-# tokenized_dataset = dataset.map(tokenize_function, batched=True)
-# trainer = Trainer(
-#     model=model,
-#     args=training_args,
-#     train_dataset=tokenized_dataset,
-#     eval_dataset=tokenized_dataset
-# )
-# trainer.train()
-# results = trainer.evaluate()
-# print(results)
-# model.save_pretrained('./models')
-# evaluate('./models', './results')
-# with open('./results/eval_results.txt', 'r') as file:
-#     print(file.read())
-# os.system('rm -r ./logs')
-# os.system('rm -r ./models')
-# os.system('rm -r ./results')
-# os.system('rm -r ./wandb')
-# os.system('rm -r ./cache')
