@@ -20,6 +20,7 @@ from elasticsearch import Elasticsearch
 from sentence_transformers import SentenceTransformer, util
 from datasets import load_dataset
 from transformers import BertTokenizer, BertModel
+from indexMapping import indexMapping
 
 
 # # Load env var & connect to Elasticsearch # #
@@ -52,125 +53,95 @@ print("-------------------")
 
 
 wikipedia_dataset = load_dataset('wikipedia', '20220301.fr', split='train', trust_remote_code=True)
-small_train_dataset = wikipedia_dataset.select(range(5))
+small_train_dataset = wikipedia_dataset.select(range(50))
+# print(small_train_dataset[0])
 
-print(small_train_dataset)
+# print(small_train_dataset)
 
 
-# # Load the SentenceTransformer model - B.E.R.T. # #
-model_name = 'bert-base-uncased'
-model = SentenceTransformer(model_name)
+# # Load the SentenceTransformer model # #
+model = SentenceTransformer('all-mpnet-base-v2')
+# Max Sequence Length:	384
+# Dimensions:	768
 
 # print("-------------------")
 
 # # Embed title / text's dataset # #
-# title_embeddings = []
-# text_embeddings = []
-# for article in small_train_dataset:
-# 	encoded_title = model.encode(article['title'])
-# 	title_embeddings.append(encoded_title)
+title_embeddings = []
+text_embeddings = []
+for article in small_train_dataset:
+	encoded_title = model.encode(article['title'])
+	title_embeddings.append(encoded_title)
 
-# 	encoded_text = model.encode(article['text'])
-# 	text_embeddings.append(encoded_text)
+	encoded_text = model.encode(article['text'])
+	text_embeddings.append(encoded_text)
 
 # print(len(title_embeddings), len(text_embeddings))
-# small_train_dataset = small_train_dataset.add_column(name="title_embeddings", column=title_embeddings)
-# small_train_dataset = small_train_dataset.add_column(name="text_embeddings", column=text_embeddings)
+small_train_dataset = small_train_dataset.add_column(name="title_embeddings", column=title_embeddings)
+small_train_dataset = small_train_dataset.add_column(name="text_embeddings", column=text_embeddings)
 
 # print(small_train_dataset)
 
-# # Insert into ES
-# esClient.indices.create(index='wiki_article', mappings=)
-# model.to_json('./data.json') # no on SentenceTransformer class
+# # Insert into ES # #
+article_json = []
+for article in small_train_dataset:
+	article_json.append({
+		'id': article['id'],
+		'url': article['url'],
+		'title': article['title'],
+		'text': article['text'],
+		'title_embeddings': article['title_embeddings'],
+		'text_embeddings': article['text_embeddings']
+	})
+
+
+# try:
+# 	esClient.indices.create(index='wiki_article', mappings=indexMapping)
+# except Elasticsearch.exceptions.RequestError as ex:
+# 	if ex.error == 'resource_already_exists_exception':
+# 		pass # Index already exists. Ignore.
+# 	else: # Other exception - raise it
+# 		raise ex
+
+for article in article_json:
+	try:
+		esClient.index(index='wiki_article', document=article, id=article['id'])
+	except Exception as e:
+		print(e)
+
+print(esClient.count(index='wiki_article'))
 
 # TODO
 # Create util class to convert Dataset <-> json
 # Create esClient class w/ connection, index creation & CRUD
 
-# # Try with a dump query
+# # Try with a dump query -> Get 5/10 sim (knn) article # #
+input_keywords = "Algorithmes"
+encoded_query = model.encode(input_keywords)
+
+query = {
+	'field': 'text_embeddings',
+	'query_vector': encoded_query,
+	'k': 5,
+	'num_candidates': len(small_train_dataset)
+}
+
+
+res = esClient.knn_search(index='wiki_article', knn=query, source=['title', 'text'])
+# print(res['hits']['hits'])
+
+print("-------------------")
+print('Dataset sie:', len(small_train_dataset))
+print("Query:", input_keywords)
+print("Results:")
+for hit in res['hits']['hits']:
+	print(hit['_source']['title'], '-', hit['_score'])
 
 
 
-# # -> Get 5/10 sim (knn) article
 
 
 
-# # Get real query from web interface / console interface
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Fonction pour encoder une requête et trouver les articles les plus similaires
-# def search(query, k=5):
-#     encoded_query = tokenizer(query, return_tensors='pt', padding=True, truncation=True)
-#     with torch.no_grad():
-#         output = model(**encoded_query)
-#         query_embedding = output.last_hidden_state.mean(dim=1)  # Utiliser la moyenne des embeddings des tokens
-#         cosine_scores = util.pytorch_cos_sim(query_embedding, encoded_articles_tensor)[0]
-#         top_results = cosine_scores.argsort(descending=True)[:k]
-#         return [(wikipedia_dataset[i]['title'], cosine_scores[i].item()) for i in top_results]
-
-
-# Exemple d'utilisation
-# query = "Machine learning"
-
-# Tokeniser la requête
-# encoded_query = tokenizer(query, return_tensors='pt', padding=True, truncation=True)
-
-# with torch.no_grad():
-# 	output = model(**encoded_query)
-# 	query_embedding = output.last_hidden_state.mean(dim=1)  # Utiliser la moyenne des embeddings des tokens
-
-
-# Calculer la similarité avec chaque document
-# similarities = []
-# for i in range(len(tokenized_dataset['input_ids'])):
-#     encoded_article = {
-#         'input_ids': tokenized_dataset['input_ids'][i],
-#         'attention_mask': tokenized_dataset['attention_mask'][i]
-#     }
-#     with torch.no_grad():
-#         output = model(**encoded_article)
-#         article_embedding = output.last_hidden_state.mean(dim=1)  # Utiliser la moyenne des embeddings des tokens
-#         cosine_similarity = torch.nn.functional.cosine_similarity(query_embedding, article_embedding)
-#         similarities.append(cosine_similarity.item())
-
-# Trouver les indices des documents les plus similaires
-# top_k = 5  # Nombre de résultats à retourner
-# top_indices = sorted(range(len(similarities)), key=lambda i: similarities[i], reverse=True)[:top_k]
-
-# Afficher les titres des documents les plus similaires
-# for idx in top_indices:
-#     print(f"Title: {wikipedia_dataset['title'][idx]}, Similarity: {similarities[idx]}")
-
-
-# Appliquer la recherche sur chaque sous-ensemble de données et fusionner les résultats
-# all_scores = torch.tensor([])
-# for shard in shards:
-#     scores = search_on_shard(query, shard)
-#     all_scores = torch.cat([all_scores, scores])
-
-# Trouver les indices des articles les plus similaires
-# top_results_indices = all_scores.argsort(descending=True)[:k]
-
-# Afficher les titres des articles les plus similaires
-# for index in top_results_indices:
-#     print(wikipedia_dataset[index]['title'])
-
-# print("Résultats récupérés avec succès !")
+# # Get real query from web interface / console interface # #
 
 
