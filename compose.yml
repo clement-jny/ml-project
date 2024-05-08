@@ -1,31 +1,4 @@
 services:
-  # script for running the model -> encode/decode datatset into vectors and store them in the database
-  python:
-    container_name: python
-    image: python:3.12-slim
-    env_file:
-      - .env
-    environment:
-      - BASE_URL_ES=$BASE_URL_ES
-      - ES_USER=$ES_USER
-      - ES_PASSWORD=$ES_PASSWORD
-    volumes:
-      - ./scripts:/scripts
-    working_dir: /scripts # dir inside the container
-    stdin_open: true
-    tty: true
-    command:
-      - /bin/sh
-      - -c
-      - |
-        pip install -r requirements.txt
-        python main.py
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
-    networks:
-      - esnet
-
   # database to store the vectors of the dataset
   elasticsearch:
     container_name: elasticsearch
@@ -44,10 +17,39 @@ services:
     networks:
       - esnet
     healthcheck:
-      test: curl --fail http://elasticsearch:9200 || exit 1
+      test: curl --fail $BASE_URL_ES || exit 1
       interval: 5s
       timeout: 5s
       retries: 120
+
+  # script for running the model -> encode/decode datatset into vectors and store them in the database
+  python:
+    container_name: python
+    image: python:3.12-slim
+    env_file:
+      - .env
+    environment:
+      - BASE_URL_ES=$BASE_URL_ES
+      - ES_USER=$ES_USER
+      - ES_PASSWORD=$ES_PASSWORD
+    ports:
+      - $PY_PORT:$PY_PORT
+    volumes:
+      - ./scripts:/scripts
+    working_dir: /scripts # dir inside the container
+    stdin_open: true
+    tty: true
+    command:
+      - /bin/sh
+      - -c
+      - |
+        pip install -r requirements.txt
+        fastapi run main.py --port $PY_PORT
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - esnet
 
   # interface to interact with elastic and the model
   server:

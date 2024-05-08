@@ -1,5 +1,6 @@
 datasets
 mwparserfromhell
-transformers
 sentence-transformers
 elasticsearch
+fastapi
+pydantic
