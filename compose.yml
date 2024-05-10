@@ -57,15 +57,11 @@ services:
     image: php:8.3-apache
     env_file:
       - .env
-    environment:
-      - BASE_URL_PYTHON=$BASE_URL_PYTHON
     ports:
       - $SERVER_LOCAL_PORT:$SERVER_DOCKER_PORT
     volumes:
       - ./web:/var/www/html
     depends_on:
-      # python:
-      # condition: service_healthy
       elasticsearch:
         condition: service_healthy
     networks:

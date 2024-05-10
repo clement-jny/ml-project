@@ -1,0 +1,35 @@
+<main></main>
+
+<script type="text/javascript">
+  document.addEventListener("DOMContentLoaded", () => {
+    const main = document.querySelector("main");
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const id = urlParams.get("id");
+
+    fetch(`http://localhost:90/article?id=${id}`, {
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    })
+      .then((res) => {
+        if (res.ok) {
+          return res.json();
+        } else {
+          throw new Error("Something went wrong");
+        }
+      })
+      .then((res) => {
+        const article = res["data"];
+
+        const div = document.createElement("div");
+        div.innerHTML = `
+    	  <h1>${article["title"]} - <a href="${article["url"]}" target="_blank">${article["url"]}</a></h1>
+    	  <p>${article["text"]}</p>
+    	`;
+
+        main.appendChild(div);
+      });
+  });
+</script>

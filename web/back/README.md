@@ -1,3 +1,0 @@
-Backend of interface to communicate with AI
-Query database with user input, add new data into database, ...
-php to query db

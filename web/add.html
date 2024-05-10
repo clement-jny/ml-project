@@ -1,0 +1,54 @@
+<main class="mainAdd">
+  <p>Format: title (str) / text (str) / url (str)</p>
+  <form method="POST" id="formAdd">
+    <input id="fileAdd" type="file" name="jsondata" accept="application/JSON" />
+    <button type="submit" name="submit" class="button">Submit</button>
+  </form>
+
+  <div id="result"></div>
+</main>
+
+<script type="text/javascript">
+  document.addEventListener("DOMContentLoaded", () => {
+    const form = document.getElementById("formAdd");
+    const file = document.getElementById("fileAdd");
+    const result = document.getElementById("result");
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+
+      if (!file.value.length) return;
+
+      const reader = new FileReader();
+
+      reader.readAsText(file.files[0]);
+
+      reader.onload = (event) => {
+        let str = event.target.result;
+        let data = JSON.parse(str);
+
+        fetch("http://localhost:90/add", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(data),
+        })
+          .then((res) => {
+            if (res.ok) {
+              return res.json();
+            } else {
+              throw new Error("Something went wrong");
+            }
+          })
+          .then((res) => {
+            console.log(res);
+            result.innerHTML = "";
+
+            result.innerHTML = res["status"];
+          });
+      };
+    });
+  });
+</script>

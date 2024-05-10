@@ -1,19 +1,9 @@
 # This file is the backend of the application.
 # It load the dataset and the model
 # Connect to the ElasticSearch database
-# Encode the dataset's title and text into vectors and store them in the ElasticSearch database <- maybe + the entire dataset (column & data)
+# Encode the dataset's title and text into vectors and store them in the ElasticSearch database along with the original data
 # Perform a search on the ElasticSearch database using the encoded user query from the frontend
 # Return the decoded search results to the frontend
-
-# Important files:
-# - app.py: This file expose api endpoints to the frontend -> ex: /search, /add_new_data, /healthcheck
-# - search: This file is used to search for data in the ElasticSearch database
-# - add_new_data: This file is used to add new data to the ElasticSearch database
-# - healthcheck: return 0 if container is up to use or 1 if not
-# - utils: This file contains utility functions used by the other files
-# - config: This file contains the configuration for the ElasticSearch database
-# - requirements.txt: This file contains the required libraries for the project
-
 
 from os import getenv
 from elasticsearch import Elasticsearch
@@ -22,7 +12,7 @@ from datasets import load_dataset
 from transformers import BertTokenizer, BertModel
 from indexMapping import indexMapping
 from fastapi import FastAPI, Body
-# from typing import Union
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 
@@ -35,9 +25,6 @@ ES_PASSWORD = getenv('ES_PASSWORD')
 esClient = Elasticsearch(BASE_URL_ES, basic_auth=(ES_USER, ES_PASSWORD))
 
 print('Connected? -', esClient.ping())
-
-# print(esClient.info())
-
 print("-------------------")
 
 
@@ -56,38 +43,33 @@ print("-------------------")
 
 
 wikipedia_dataset = load_dataset('wikipedia', '20220301.fr', split='train', trust_remote_code=True)
-small_train_dataset = wikipedia_dataset.select(range(15))
-# print(small_train_dataset[0])
-
-# print(small_train_dataset)
 
 
 # # Load the SentenceTransformer model # #
 model = SentenceTransformer('all-mpnet-base-v2')
 # Max Sequence Length:	384
 # Dimensions:	768
-
 # print("-------------------")
 
-# # Embed title / text's dataset # #
+
+# # Embed title's | text's dataset # #
 title_embeddings = []
 text_embeddings = []
-for article in small_train_dataset:
+for article in wikipedia_dataset:
 	encoded_title = model.encode(article['title'])
 	title_embeddings.append(encoded_title)
 
 	encoded_text = model.encode(article['text'])
 	text_embeddings.append(encoded_text)
 
-# print(len(title_embeddings), len(text_embeddings))
-small_train_dataset = small_train_dataset.add_column(name="title_embeddings", column=title_embeddings)
-small_train_dataset = small_train_dataset.add_column(name="text_embeddings", column=text_embeddings)
+wikipedia_dataset = wikipedia_dataset.add_column(name="title_embeddings", column=title_embeddings)
+wikipedia_dataset = wikipedia_dataset.add_column(name="text_embeddings", column=text_embeddings)
 
-# print(small_train_dataset)
+
 
 # # Insert into ES # #
 article_json = []
-for article in small_train_dataset:
+for article in wikipedia_dataset:
 	article_json.append({
 		'id': article['id'],
 		'url': article['url'],
@@ -98,13 +80,13 @@ for article in small_train_dataset:
 	})
 
 es_index = 'wiki_article'
-try:
-	esClient.indices.create(index=es_index, mappings=indexMapping)
-except RequestError as ex:
-	if ex.error == 'resource_already_exists_exception':
-		pass # Index already exists. Ignore.
-	else: # Other exception - raise it
-		raise ex
+# try:
+# 	esClient.indices.create(index=es_index, mappings=indexMapping)
+# except BadRequestError as ex:
+# 	if ex.error == 'resource_already_exists_exception':
+# 		pass # Index already exists. Ignore.
+# 	else: # Other exception - raise it
+# 		raise ex
 
 for article in article_json:
 	try:
@@ -112,47 +94,19 @@ for article in article_json:
 	except Exception as e:
 		print(e)
 
+# print('Count article -', esClient.count(index=es_index))
 
-print('Count article -', esClient.count(index=es_index))
-
-# TODO
-# Create util class to convert Dataset <-> json
-# Create esClient class w/ connection, index creation & CRUD
-
-
-
-
-# # Try with a dump query -> Get 5/10 sim (knn) article # #
-# input_keywords = "Algorithmes"
-# encoded_query = model.encode(input_keywords)
-
-# query = {
-# 	'field': 'text_embeddings',
-# 	'query_vector': encoded_query,
-# 	'k': 5,
-# 	'num_candidates': len(small_train_dataset)
-# }
-
-
-# res = esClient.knn_search(index=es_index, knn=query, source=['title', 'text'])
-# print(res['hits']['hits'])
-
-# print("-------------------")
-# print('Dataset size:', len(small_train_dataset))
-# print("Query:", input_keywords)
-# print("Results:")
-# for hit in res['hits']['hits']:
-# 	print(hit['_source']['title'], '-', hit['_score'])
-
-
-
-
-
-
-# # Get real query from web interface / console interface # #
 
 # # Define endpoint to get query from frontend # #
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
@@ -160,9 +114,17 @@ def read_root():
     return {"Hello": "World!"}
 
 
-# @app.get("/items/{item_id}")
-# def read_item(item_id: int, q: Union[str, None] = None):
-#     return {"item_id": item_id, "q": q}
+@app.get("/article")
+def get_article(id: str):
+	# Get article from ES
+	res = esClient.get(index=es_index, id=id)
+
+	# Return the article
+	return { 'data': {
+		'title': res['_source']['title'],
+		'url': res['_source'].get('url', 'no url'),
+		'text': res['_source']['text']
+	}}
 
 
 # # /search endpoint | POST - body: {query: str} # #
@@ -175,18 +137,26 @@ def search(query: str = Body(..., embed=True)):
 	query = {
 		'field': 'text_embeddings',
 		'query_vector': encoded_query,
-		'k': 5,
-		'num_candidates': len(small_train_dataset)
+		'k': 10,
+		'num_candidates': len(wikipedia_dataset)
 	}
 
 	# Get the results
 	res = esClient.knn_search(index=es_index, knn=query, source=['title', 'text'])
 
-	print(res['hits']['hits'])
+	# Format the results
+	data = []
+	for hit in res['hits']['hits']:
+		data.append({
+			'id': hit['_id'],
+			'title': hit['_source']['title'],
+			'text': hit['_source']['text'],
+			'score': hit['_score']
+		})
 
 	# Return the results
-	proba = hit['_source']['title'] + ' - ' + hit['_score']
-	return { "query": query, "results": res['hits']['hits'], "proba": proba }
+	return { "data": data }
+
 
 # # /add endpoint | POST - body: {data: {title: str, text: str}} # #
 # # Add new data here JSON format (title, body), encode title & body, populate database
@@ -213,4 +183,4 @@ def add(data: NewData):
 	except Exception as e:
 		print(e)
 
-	return { "status": "success" }
+	return { "status": "success upload" }

@@ -1,0 +1,56 @@
+<main class="mainSearch">
+  <form method="POST" id="formSearch">
+    <input type="text" name="query" placeholder="Write your mind ..." />
+    <button type="submit" name="submit" class="button">Submit</button>
+  </form>
+
+  <div id="result"></div>
+</main>
+
+<script type="text/javascript">
+  document.addEventListener("DOMContentLoaded", () => {
+    const form = document.getElementById("formSearch");
+    const result = document.getElementById("result");
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+
+      const formData = new FormData(e.target);
+      const formObj = Object.fromEntries(formData);
+
+      if (formObj["query"] === "") {
+        alert("Please enter a search term");
+      } else {
+        fetch("http://localhost:90/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(formObj),
+        })
+          .then((res) => {
+            if (res.ok) {
+              return res.json();
+            } else {
+              throw new Error("Something went wrong");
+            }
+          })
+          .then((res) => {
+            result.innerHTML = "";
+
+            res["data"].forEach((article) => {
+              const div = document.createElement("div");
+              div.innerHTML = `
+			  <h2><a href="?v=article&id=${article["id"]}">${article["title"]}</a></h2>`;
+              div.innerHTML += `<p>${article["text"].substring(0, 300)}</p>`;
+
+              result.appendChild(div);
+
+              result.innerHTML += '<div class="separator"></div>';
+            });
+          });
+      }
+    });
+  });
+</script>
